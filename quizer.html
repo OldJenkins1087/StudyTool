@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StudyFlow - Smart Flashcard Learning</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+        .animate-slide-in { animation: slideIn 0.3s ease-out; }
+        .animate-pulse-once { animation: pulse 0.3s ease-out; }
+        .animate-shake { animation: shake 0.3s ease-out; }
+        .correct-flash { background: linear-gradient(135deg, #10b981, #059669) !important; }
+        .incorrect-flash { background: linear-gradient(135deg, #ef4444, #dc2626) !important; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 min-h-screen text-white">
+    <!-- App Container -->
+    <div id="app" class="min-h-screen">
+        
+        <!-- Landing Page -->
+        <div id="landing-page" class="min-h-screen flex flex-col items-center justify-center p-6">
+            <div class="text-center mb-12 animate-slide-in">
+                <h1 class="text-6xl font-bold bg-gradient-to-r from-purple-400 via-pink-500 to-orange-400 bg-clip-text text-transparent mb-4">
+                    StudyFlow
+                </h1>
+                <p class="text-xl text-gray-300">Smart flashcard learning with adaptive algorithms</p>
+            </div>
+            
+            <div class="bg-white/10 backdrop-blur-lg rounded-3xl p-8 max-w-lg w-full border border-white/20 shadow-2xl animate-slide-in">
+                <div class="text-center mb-6">
+                    <div class="w-20 h-20 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                        <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                        </svg>
+                    </div>
+                    <h2 class="text-2xl font-semibold mb-2">Import Your Study Set</h2>
+                    <p class="text-gray-400">Upload a CSV file with your terms and definitions</p>
+                </div>
+                
+                <label class="block w-full cursor-pointer">
+                    <div class="border-2 border-dashed border-purple-400/50 rounded-2xl p-8 text-center hover:border-purple-400 hover:bg-purple-500/10 transition-all duration-300">
+                        <input type="file" id="csv-input" accept=".csv,.txt" class="hidden">
+                        <svg class="w-12 h-12 text-purple-400 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                        <p class="text-purple-300 font-medium">Click to upload CSV file</p>
+                        <p class="text-gray-500 text-sm mt-1">or drag and drop</p>
+                    </div>
+                </label>
+                
+                <div class="mt-6 p-4 bg-black/20 rounded-xl">
+                    <p class="text-sm text-gray-400 mb-2">📝 Expected format:</p>
+                    <code class="text-xs text-purple-300 block">term,answer,wrong1,wrong2,wrong3</code>
+                    <p class="text-xs text-gray-500 mt-2">Extra columns optional - random choices will be generated if not provided</p>
+                </div>
+            </div>
+            
+            <p class="mt-8 text-gray-500 text-sm">Press <kbd class="px-2 py-1 bg-white/10 rounded">1-4</kbd> to answer quickly during quiz</p>
+        </div>
+
+        <!-- Settings Page -->
+        <div id="settings-page" class="min-h-screen flex flex-col items-center justify-center p-6 hidden">
+            <div class="bg-white/10 backdrop-blur-lg rounded-3xl p-8 max-w-2xl w-full border border-white/20 shadow-2xl animate-slide-in">
+                <h2 class="text-3xl font-bold mb-6 text-center">Configure Your Study Set</h2>
+                
+                <div class="grid gap-6">
+                    <!-- File Info -->
+                    <div class="bg-black/20 rounded-xl p-4">
+                        <p class="text-gray-400 text-sm">Loaded file:</p>
+                        <p id="file-name" class="text-purple-300 font-medium">filename.csv</p>
+                        <p id="row-count" class="text-gray-500 text-sm">0 rows detected</p>
+                    </div>
+                    
+                    <!-- Format Settings -->
+                    <div class="grid md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Delimiter</label>
+                            <select id="delimiter" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                                <option value=",">Comma (,)</option>
+                                <option value=";">Semicolon (;)</option>
+                                <option value="\t">Tab</option>
+                                <option value="|">Pipe (|)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Has Header Row</label>
+                            <select id="has-header" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                                <option value="false">No header row</option>
+                                <option value="true">First row is header</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="grid md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Term Column</label>
+                            <select id="term-col" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                                <option value="0">Column 1</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Answer Column</label>
+                            <select id="answer-col" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                                <option value="1">Column 2</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Extra Wrong Answers Columns</label>
+                        <p class="text-gray-500 text-xs mb-2">Select columns containing additional wrong answer choices</p>
+                        <div id="extra-cols" class="flex flex-wrap gap-2">
+                            <!-- Dynamically populated -->
+                        </div>
+                    </div>
+                    
+                    <!-- Preview -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Preview (first 3 rows)</label>
+                        <div id="preview-table" class="bg-black/30 rounded-xl p-4 overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <tbody id="preview-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <!-- Quiz Options -->
+                    <div class="grid md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Number of Choices</label>
+                            <select id="num-choices" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                                <option value="2">2 choices</option>
+                                <option value="3">3 choices</option>
+                                <option value="4" selected>4 choices</option>
+                                <option value="5">5 choices</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Quiz Mode</label>
+                            <select id="quiz-mode" class="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500">
+                                <option value="term-to-answer">Term → Answer</option>
+                                <option value="answer-to-term">Answer → Term</option>
+                                <option value="mixed">Mixed</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="flex gap-4 mt-8">
+                    <button id="back-btn" class="flex-1 bg-white/10 hover:bg-white/20 text-white font-semibold py-4 rounded-xl transition-all duration-300">
+                        ← Back
+                    </button>
+                    <button id="start-btn" class="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-semibold py-4 rounded-xl transition-all duration-300 shadow-lg hover:shadow-purple-500/25">
+                        Start Studying →
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quiz Page -->
+        <div id="quiz-page" class="min-h-screen flex flex-col p-4 md:p-6 hidden">
+            <!-- Top Bar -->
+            <div class="flex items-center justify-between mb-6">
+                <button id="quit-btn" class="text-gray-400 hover:text-white transition-colors flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                    Quit
+                </button>
+                
+                <div class="flex items-center gap-4">
+                    <div class="text-center">
+                        <p class="text-2xl font-bold text-green-400" id="correct-count">0</p>
+                        <p class="text-xs text-gray-500">Correct</p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-2xl font-bold text-red-400" id="incorrect-count">0</p>
+                        <p class="text-xs text-gray-500">Incorrect</p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-2xl font-bold text-purple-400" id="streak-count">0</p>
+                        <p class="text-xs text-gray-500">Streak</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Progress Bar -->
+            <div class="w-full bg-white/10 rounded-full h-2 mb-8">
+                <div id="progress-bar" class="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+            </div>
+            
+            <!-- Question Card -->
+            <div class="flex-1 flex flex-col items-center justify-center max-w-3xl mx-auto w-full">
+                <div id="question-card" class="bg-white/10 backdrop-blur-lg rounded-3xl p-8 md:p-12 w-full border border-white/20 shadow-2xl mb-8 animate-slide-in">
+                    <p class="text-sm text-purple-400 mb-2" id="question-label">Definition</p>
+                    <h2 id="question-text" class="text-2xl md:text-4xl font-bold text-center leading-relaxed">
+                        Loading...
+                    </h2>
+                </div>
+                
+                <!-- Answer Choices -->
+                <div id="choices-container" class="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">
+                    <!-- Dynamically populated -->
+                </div>
+                
+                <!-- Keyboard hint -->
+                <p class="mt-6 text-gray-500 text-sm">Press <kbd class="px-2 py-1 bg-white/10 rounded">1-4</kbd> to answer</p>
+            </div>
+        </div>
+
+        <!-- Results Page -->
+        <div id="results-page" class="min-h-screen flex flex-col items-center justify-center p-6 hidden">
+            <div class="bg-white/10 backdrop-blur-lg rounded-3xl p-8 max-w-lg w-full border border-white/20 shadow-2xl animate-slide-in text-center">
+                <div class="w-24 h-24 bg-gradient-to-br from-green-500 to-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <svg class="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                </div>
+                
+                <h2 class="text-3xl font-bold mb-2">Session Complete!</h2>
+                <p class="text-gray-400 mb-8">Here's how you did</p>
+                
+                <div class="grid grid-cols-3 gap-4 mb-8">
+                    <div class="bg-black/20 rounded-xl p-4">
+                        <p class="text-3xl font-bold text-green-400" id="final-correct">0</p>
+                        <p class="text-sm text-gray-400">Correct</p>
+                    </div>
+                    <div class="bg-black/20 rounded-xl p-4">
+                        <p class="text-3xl font-bold text-red-400" id="final-incorrect">0</p>
+                        <p class="text-sm text-gray-400">Incorrect</p>
+                    </div>
+                    <div class="bg-black/20 rounded-xl p-4">
+                        <p class="text-3xl font-bold text-purple-400" id="final-accuracy">0%</p>
+                        <p class="text-sm text-gray-400">Accuracy</p>
+                    </div>
+                </div>
+                
+                <div class="bg-black/20 rounded-xl p-4 mb-8">
+                    <p class="text-sm text-gray-400 mb-2">Best Streak</p>
+                    <p class="text-4xl font-bold text-orange-400" id="final-streak">0</p>
+                </div>
+                
+                <!-- Terms to review -->
+                <div id="review-section" class="text-left mb-8 hidden">
+                    <p class="text-sm font-medium text-gray-300 mb-3">Terms to Review:</p>
+                    <div id="review-list" class="max-h-40 overflow-y-auto space-y-2"></div>
+                </div>
+                
+                <div class="flex gap-4">
+                    <button id="restart-btn" class="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-semibold py-4 rounded-xl transition-all duration-300">
+                        Study Again
+                    </button>
+                    <button id="new-set-btn" class="flex-1 bg-white/10 hover:bg-white/20 text-white font-semibold py-4 rounded-xl transition-all duration-300">
+                        New Set
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State Management
+        const state = {
+            rawData: '',
+            fileName: '',
+            cards: [],
+            settings: {
+                delimiter: ',',
+                hasHeader: false,
+                termCol: 0,
+                answerCol: 1,
+                extraCols: [],
+                numChoices: 4,
+                quizMode: 'term-to-answer'
+            },
+            quiz: {
+                currentIndex: 0,
+                correct: 0,
+                incorrect: 0,
+                streak: 0,
+                bestStreak: 0,
+                answered: 0,
+                queue: [],
+                termStats: {} // For learning algorithm
+            }
+        };
+
+        // DOM Elements
+        const pages = {
+            landing: document.getElementById('landing-page'),
+            settings: document.getElementById('settings-page'),
+            quiz: document.getElementById('quiz-page'),
+            results: document.getElementById('results-page')
+        };
+
+        // Parse CSV with proper handling of quoted fields
+        function parseCSV(text, delimiter = ',') {
+            const rows = [];
+            let currentRow = [];
+            let currentField = '';
+            let inQuotes = false;
+            
+            for (let i = 0; i < text.length; i++) {
+                const char = text[i];
+                const nextChar = text[i + 1];
+                
+                if (inQuotes) {
+                    if (char === '"' && nextChar === '"') {
+                        currentField += '"';
+                        i++;
+                    } else if (char === '"') {
+                        inQuotes = false;
+                    } else {
+                        currentField += char;
+                    }
+                } else {
+                    if (char === '"') {
+                        inQuotes = true;
+                    } else if (char === delimiter) {
+                        currentRow.push(currentField.trim());
+                        currentField = '';
+                    } else if (char === '\n' || (char === '\r' && nextChar === '\n')) {
+                        currentRow.push(currentField.trim());
+                        if (currentRow.some(cell => cell.length > 0)) {
+                            rows.push(currentRow);
+                        }
+                        currentRow = [];
+                        currentField = '';
+                        if (char === '\r') i++;
+                    } else if (char !== '\r') {
+                        currentField += char;
+                    }
+                }
+            }
+            
+            // Don't forget the last field/row
+            currentRow.push(currentField.trim());
+            if (currentRow.some(cell => cell.length > 0)) {
+                rows.push(currentRow);
+            }
+            
+            return rows;
+        }
+
+        // Show specific page
+        function showPage(pageName) {
+            Object.values(pages).forEach(page => page.classList.add('hidden'));
+            pages[pageName].classList.remove('hidden');
+        }
+
+        // Update column select options
+        function updateColumnSelects(numCols) {
+            const termSelect = document.getElementById('term-col');
+            const answerSelect = document.getElementById('answer-col');
+            const extraColsDiv = document.getElementById('extra-cols');
+            
+            termSelect.innerHTML = '';
+            answerSelect.innerHTML = '';
+            extraColsDiv.innerHTML = '';
+            
+            for (let i = 0; i < numCols; i++) {
+                termSelect.innerHTML += `<option value="${i}">Column ${i + 1}</option>`;
+                answerSelect.innerHTML += `<option value="${i}">Column ${i + 1}</option>`;
+            }
+            
+            answerSelect.value = Math.min(1, numCols - 1);
+            
+            if (numCols > 2) {
+                for (let i = 0; i < numCols; i++) {
+                    const checkbox = document.createElement('label');
+                    checkbox.className = 'flex items-center gap-2 bg-white/10 px-3 py-2 rounded-lg cursor-pointer hover:bg-white/20 transition-colors';
+                    checkbox.innerHTML = `
+                        <input type="checkbox" class="extra-col-checkbox" value="${i}" ${i >= 2 ? 'checked' : ''}>
+                        <span>Col ${i + 1}</span>
+                    `;
+                    extraColsDiv.appendChild(checkbox);
+                }
+            } else {
+                extraColsDiv.innerHTML = '<p class="text-gray-500 text-sm">No extra columns available - random wrong answers will be generated</p>';
+            }
+        }
+
+        // Update preview table
+        function updatePreview() {
+            const delimiter = document.getElementById('delimiter').value === '\\t' ? '\t' : document.getElementById('delimiter').value;
+            const rows = parseCSV(state.rawData, delimiter);
+            const previewBody = document.getElementById('preview-body');
+            const hasHeader = document.getElementById('has-header').value === 'true';
+            
+            previewBody.innerHTML = '';
+            
+            const previewRows = rows.slice(0, 3);
+            previewRows.forEach((row, idx) => {
+                const tr = document.createElement('tr');
+                tr.className = idx === 0 && hasHeader ? 'text-purple-400 font-medium' : 'text-gray-300';
+                row.forEach((cell, cellIdx) => {
+                    const td = document.createElement('td');
+                    td.className = 'px-3 py-2 border-b border-white/10';
+                    td.textContent = cell.substring(0, 30) + (cell.length > 30 ? '...' : '');
+                    tr.appendChild(td);
+                });
+                previewBody.appendChild(tr);
+            });
+            
+            if (rows.length > 0) {
+                updateColumnSelects(rows[0].length);
+                document.getElementById('row-count').textContent = `${rows.length} rows detected`;
+            }
+        }
+
+        // Process cards from parsed data
+        function processCards() {
+            const delimiter = state.settings.delimiter === '\\t' ? '\t' : state.settings.delimiter;
+            const rows = parseCSV(state.rawData, delimiter);
+            
+            const startRow = state.settings.hasHeader ? 1 : 0;
+            const termCol = state.settings.termCol;
+            const answerCol = state.settings.answerCol;
+            
+            // Get selected extra columns
+            const extraCols = Array.from(document.querySelectorAll('.extra-col-checkbox:checked'))
+                .map(cb => parseInt(cb.value))
+                .filter(col => col !== termCol && col !== answerCol);
+            
+            state.cards = [];
+            
+            for (let i = startRow; i < rows.length; i++) {
+                const row = rows[i];
+                if (row.length > Math.max(termCol, answerCol)) {
+                    const card = {
+                        id: i,
+                        term: row[termCol],
+                        answer: row[answerCol],
+                        wrongAnswers: extraCols.map(col => row[col]).filter(Boolean)
+                    };
+                    
+                    if (card.term && card.answer) {
+                        state.cards.push(card);
+                    }
+                }
+            }
+        }
+
+        // Learning algorithm - weighted random selection
+        function getNextCard() {
+            const { queue, termStats } = state.quiz;
+            
+            if (queue.length === 0) {
+                // Rebuild queue with weighted probabilities
+                const weights = state.cards.map(card => {
+                    const stats = termStats[card.id] || { correct: 0, incorrect: 0 };
+                    // Higher weight for cards answered incorrectly
+                    const weight = 1 + (stats.incorrect * 3) - (stats.correct * 0.5);
+                    return Math.max(0.1, weight);
+                });
+                
+                // Create weighted queue
+                const totalWeight = weights.reduce((a, b) => a + b, 0);
+                const numToAdd = Math.min(state.cards.length, 10);
+                
+                while (queue.length < numToAdd) {
+                    let random = Math.random() * totalWeight;
+                    for (let i = 0; i < state.cards.length; i++) {
+                        random -= weights[i];
+                        if (random <= 0 && !queue.includes(i)) {
+                            queue.push(i);
+                            break;
+                        }
+                    }
+                    // Fallback to prevent infinite loop
+                    if (queue.length < numToAdd) {
+                        for (let i = 0; i < state.cards.length && queue.length < numToAdd; i++) {
+                            if (!queue.includes(i)) queue.push(i);
+                        }
+                    }
+                }
+                
+                // Shuffle queue
+                for (let i = queue.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [queue[i], queue[j]] = [queue[j], queue[i]];
+                }
+            }
+            
+            return state.cards[queue.shift()];
+        }
+
+        // Generate wrong answers
+        function generateWrongAnswers(correctCard, isReversed) {
+            const numWrong = state.settings.numChoices - 1;
+            const wrongAnswers = [];
+            const correctValue = isReversed ? correctCard.term : correctCard.answer;
+            
+            // First, use provided wrong answers if available
+            if (correctCard.wrongAnswers.length > 0) {
+                wrongAnswers.push(...correctCard.wrongAnswers.slice(0, numWrong));
+            }
+            
+            // Fill remaining with random answers from other cards
+            const otherCards = state.cards.filter(c => c.id !== correctCard.id);
+            const shuffled = [...otherCards].sort(() => Math.random() - 0.5);
+            
+            for (const card of shuffled) {
+                if (wrongAnswers.length >= numWrong) break;
+                const value = isReversed ? card.term : card.answer;
+                if (!wrongAnswers.includes(value) && value !== correctValue) {
+                    wrongAnswers.push(value);
+                }
+            }
+            
+            return wrongAnswers.slice(0, numWrong);
+        }
+
+        // Display current question
+        function displayQuestion() {
+            const card = getNextCard();
+            if (!card) {
+                showResults();
+                return;
+            }
+            
+            state.quiz.currentCard = card;
+            
+            // Determine direction based on quiz mode
+            let isReversed = false;
+            if (state.settings.quizMode === 'answer-to-term') {
+                isReversed = true;
+            } else if (state.settings.quizMode === 'mixed') {
+                isReversed = Math.random() > 0.5;
+            }
+            state.quiz.isReversed = isReversed;
+            
+            const questionText = isReversed ? card.answer : card.term;
+            const correctAnswer = isReversed ? card.term : card.answer;
+            const wrongAnswers = generateWrongAnswers(card, isReversed);
+            
+            // Update question
+            document.getElementById('question-label').textContent = isReversed ? 'Answer' : 'Term';
+            document.getElementById('question-text').textContent = questionText;
+            
+            // Create choices array and shuffle
+            const choices = [correctAnswer, ...wrongAnswers];
+            for (let i = choices.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [choices[i], choices[j]] = [choices[j], choices[i]];
+            }
+            
+            state.quiz.correctIndex = choices.indexOf(correctAnswer);
+            state.quiz.choices = choices;
+            
+            // Render choices
+            const container = document.getElementById('choices-container');
+            container.innerHTML = '';
+            
+            choices.forEach((choice, idx) => {
+                const btn = document.createElement('button');
+                btn.className = 'choice-btn bg-white/10 hover:bg-white/20 border border-white/20 rounded-2xl p-4 md:p-6 text-left transition-all duration-200 hover:scale-[1.02] hover:border-purple-400/50';
+                btn.innerHTML = `
+                    <span class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-purple-500/30 text-purple-300 font-bold text-sm mr-3">${idx + 1}</span>
+                    <span class="text-lg">${choice}</span>
+                `;
+                btn.addEventListener('click', () => handleAnswer(idx));
+                container.appendChild(btn);
+            });
+            
+            // Update progress
+            const progress = (state.quiz.answered / (state.cards.length * 2)) * 100;
+            document.getElementById('progress-bar').style.width = `${Math.min(progress, 100)}%`;
+            
+            // Animate card
+            const questionCard = document.getElementById('question-card');
+            questionCard.classList.remove('animate-slide-in');
+            void questionCard.offsetWidth; // Trigger reflow
+            questionCard.classList.add('animate-slide-in');
+        }
+
+        // Handle answer selection
+        function handleAnswer(selectedIndex) {
+            const isCorrect = selectedIndex === state.quiz.correctIndex;
+            const card = state.quiz.currentCard;
+            const buttons = document.querySelectorAll('.choice-btn');
+            
+            // Disable all buttons
+            buttons.forEach(btn => btn.disabled = true);
+            
+            // Initialize term stats if needed
+            if (!state.quiz.termStats[card.id]) {
+                state.quiz.termStats[card.id] = { correct: 0, incorrect: 0 };
+            }
+            
+            // Visual feedback
+            buttons[state.quiz.correctIndex].classList.add('correct-flash', 'text-white');
+            
+            if (isCorrect) {
+                state.quiz.correct++;
+                state.quiz.streak++;
+                state.quiz.bestStreak = Math.max(state.quiz.bestStreak, state.quiz.streak);
+                state.quiz.termStats[card.id].correct++;
+                buttons[selectedIndex].classList.add('animate-pulse-once');
+            } else {
+                state.quiz.incorrect++;
+                state.quiz.streak = 0;
+                state.quiz.termStats[card.id].incorrect++;
+                buttons[selectedIndex].classList.add('incorrect-flash', 'text-white', 'animate-shake');
+                
+                // Re-add card to queue for review
+                state.quiz.queue.push(state.cards.indexOf(card));
+            }
+            
+            state.quiz.answered++;
+            
+            // Update counters
+            document.getElementById('correct-count').textContent = state.quiz.correct;
+            document.getElementById('incorrect-count').textContent = state.quiz.incorrect;
+            document.getElementById('streak-count').textContent = state.quiz.streak;
+            
+            // Check if session is complete (all cards mastered)
+            const allMastered = state.cards.every(c => {
+                const stats = state.quiz.termStats[c.id];
+                return stats && stats.correct >= 2 && stats.correct > stats.incorrect;
+            });
+            
+            // Auto-advance after delay
+            setTimeout(() => {
+                if (allMastered || state.quiz.answered >= state.cards.length * 3) {
+                    showResults();
+                } else {
+                    displayQuestion();
+                }
+            }, isCorrect ? 500 : 1200);
+        }
+
+        // Show results
+        function showResults() {
+            showPage('results');
+            
+            const total = state.quiz.correct + state.quiz.incorrect;
+            const accuracy = total > 0 ? Math.round((state.quiz.correct / total) * 100) : 0;
+            
+            document.getElementById('final-correct').textContent = state.quiz.correct;
+            document.getElementById('final-incorrect').textContent = state.quiz.incorrect;
+            document.getElementById('final-accuracy').textContent = accuracy + '%';
+            document.getElementById('final-streak').textContent = state.quiz.bestStreak;
+            
+            // Show terms to review
+            const toReview = state.cards.filter(card => {
+                const stats = state.quiz.termStats[card.id];
+                return stats && stats.incorrect > stats.correct;
+            });
+            
+            const reviewSection = document.getElementById('review-section');
+            const reviewList = document.getElementById('review-list');
+            
+            if (toReview.length > 0) {
+                reviewSection.classList.remove('hidden');
+                reviewList.innerHTML = toReview.map(card => `
+                    <div class="bg-black/20 rounded-lg p-3">
+                        <p class="text-purple-300 font-medium">${card.term}</p>
+                        <p class="text-gray-400 text-sm">${card.answer}</p>
+                    </div>
+                `).join('');
+            } else {
+                reviewSection.classList.add('hidden');
+            }
+        }
+
+        // Initialize quiz
+        function startQuiz() {
+            state.quiz = {
+                currentIndex: 0,
+                correct: 0,
+                incorrect: 0,
+                streak: 0,
+                bestStreak: 0,
+                answered: 0,
+                queue: [],
+                termStats: {}
+            };
+            
+            processCards();
+            
+            if (state.cards.length < 2) {
+                alert('Need at least 2 cards to start a quiz!');
+                return;
+            }
+            
+            document.getElementById('correct-count').textContent = '0';
+            document.getElementById('incorrect-count').textContent = '0';
+            document.getElementById('streak-count').textContent = '0';
+            document.getElementById('progress-bar').style.width = '0%';
+            
+            showPage('quiz');
+            displayQuestion();
+        }
+
+        // Event Listeners
+        document.getElementById('csv-input').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            state.fileName = file.name;
+            
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                state.rawData = event.target.result;
+                document.getElementById('file-name').textContent = file.name;
+                updatePreview();
+                showPage('settings');
+            };
+            reader.readAsText(file);
+        });
+
+        document.getElementById('delimiter').addEventListener('change', updatePreview);
+        document.getElementById('has-header').addEventListener('change', updatePreview);
+
+        document.getElementById('back-btn').addEventListener('click', () => {
+            showPage('landing');
+            document.getElementById('csv-input').value = '';
+        });
+
+        document.getElementById('start-btn').addEventListener('click', () => {
+            state.settings.delimiter = document.getElementById('delimiter').value;
+            state.settings.hasHeader = document.getElementById('has-header').value === 'true';
+            state.settings.termCol = parseInt(document.getElementById('term-col').value);
+            state.settings.answerCol = parseInt(document.getElementById('answer-col').value);
+            state.settings.numChoices = parseInt(document.getElementById('num-choices').value);
+            state.settings.quizMode = document.getElementById('quiz-mode').value;
+            
+            startQuiz();
+        });
+
+        document.getElementById('quit-btn').addEventListener('click', () => {
+            if (confirm('Are you sure you want to quit this session?')) {
+                showResults();
+            }
+        });
+
+        document.getElementById('restart-btn').addEventListener('click', startQuiz);
+
+        document.getElementById('new-set-btn').addEventListener('click', () => {
+            showPage('landing');
+            document.getElementById('csv-input').value = '';
+            state.rawData = '';
+            state.cards = [];
+        });
+
+        // Keyboard support
+        document.addEventListener('keydown', (e) => {
+            if (!pages.quiz.classList.contains('hidden')) {
+                const num = parseInt(e.key);
+                if (num >= 1 && num <= state.settings.numChoices) {
+                    const buttons = document.querySelectorAll('.choice-btn');
+                    if (buttons[num - 1] && !buttons[num - 1].disabled) {
+                        handleAnswer(num - 1);
+                    }
+                }
+            }
+        });
+
+        // Drag and drop support
+        const dropZone = document.querySelector('#landing-page label');
+        
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.querySelector('div').classList.add('border-purple-400', 'bg-purple-500/20');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.querySelector('div').classList.remove('border-purple-400', 'bg-purple-500/20');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.querySelector('div').classList.remove('border-purple-400', 'bg-purple-500/20');
+            
+            const file = e.dataTransfer.files[0];
+            if (file && (file.name.endsWith('.csv') || file.name.endsWith('.txt'))) {
+                const input = document.getElementById('csv-input');
+                const dt = new DataTransfer();
+                dt.items.add(file);
+                input.files = dt.files;
+                input.dispatchEvent(new Event('change'));
+            }
+        });
+    </script>
+</body>
+</html>
