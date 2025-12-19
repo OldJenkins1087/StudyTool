@@ -459,42 +459,42 @@
             const { queue, termStats } = state.quiz;
             
             if (queue.length === 0) {
-                // Rebuild queue with weighted probabilities
-                const weights = state.cards.map(card => {
-                    const stats = termStats[card.id] || { correct: 0, incorrect: 0 };
-                    // Higher weight for cards answered incorrectly
-                    const weight = 1 + (stats.incorrect * 3) - (stats.correct * 1.0);
-                    return Math.max(0.1, weight);
-                });
-                
-                // Create weighted queue
-                const totalWeight = weights.reduce((a, b) => a + b, 0);
-                const numToAdd = Math.min(state.cards.length, 10);
-                
-                while (queue.length < numToAdd) {
-                    let random = Math.random() * totalWeight;
-                    for (let i = 0; i < state.cards.length; i++) {
-                        random -= weights[i];
-                        if (random <= 0 && !queue.includes(i)) {
-                            queue.push(i);
-                            break;
-                        }
-                    }
-                    // Fallback to prevent infinite loop
-                    if (queue.length < numToAdd) {
-                        for (let i = 0; i < state.cards.length && queue.length < numToAdd; i++) {
-                            if (!queue.includes(i)) queue.push(i);
-                        }
+            // Rebuild queue with weighted probabilities, include all cards
+            const weights = state.cards.map(card => {
+                const stats = termStats[card.id] || { correct: 0, incorrect: 0, seen: 0 };
+                const seen = stats.seen || 0;
+                const unseenBoost = seen === 0 ? 4 : 0; // tweak the 4 to taste
+                // Higher weight for cards answered incorrectly, also boost unseen cards
+                const weight = 1 + unseenBoost + (stats.incorrect * 3) - (stats.correct * 1.0);
+                return Math.max(0.1, weight);
+            });
+        
+            const totalWeight = weights.reduce((a, b) => a + b, 0);
+            // Make sure we try to add every card at least once
+            const numToAdd = state.cards.length;
+        
+            while (queue.length < numToAdd) {
+                let random = Math.random() * totalWeight;
+                for (let i = 0; i < state.cards.length; i++) {
+                    random -= weights[i];
+                    if (random <= 0 && !queue.includes(i)) {
+                        queue.push(i);
+                        break;
                     }
                 }
-                
-                // Shuffle queue
-                for (let i = queue.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [queue[i], queue[j]] = [queue[j], queue[i]];
+                // Fallback in case numerical issues prevent adding more
+                if (queue.length < numToAdd) {
+                    for (let i = 0; i < state.cards.length && queue.length < numToAdd; i++) {
+                        if (!queue.includes(i)) queue.push(i);
+                    }
                 }
             }
-            
+        
+            // Shuffle queue so order isn't deterministic
+            for (let i = queue.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [queue[i], queue[j]] = [queue[j], queue[i]];
+            }
             return state.cards[queue.shift()];
         }
 
@@ -600,6 +600,7 @@
             if (!state.quiz.termStats[card.id]) {
                 state.quiz.termStats[card.id] = { correct: 0, incorrect: 0 };
             }
+            state.quiz.termStats[card.id].seen = (state.quiz.termStats[card.id].seen || 0) + 1;
             
             // Visual feedback
             buttons[state.quiz.correctIndex].classList.add('correct-flash', 'text-white');
