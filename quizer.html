@@ -463,7 +463,7 @@
                 const weights = state.cards.map(card => {
                     const stats = termStats[card.id] || { correct: 0, incorrect: 0 };
                     // Higher weight for cards answered incorrectly
-                    const weight = 1 + (stats.incorrect * 3) - (stats.correct * 0.5);
+                    const weight = 1 + (stats.incorrect * 3) - (stats.correct * 1.0);
                     return Math.max(0.1, weight);
                 });
                 
