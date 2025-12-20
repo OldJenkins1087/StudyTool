@@ -242,15 +242,20 @@
                         <p class="text-3xl font-bold text-red-400" id="final-incorrect">0</p>
                         <p class="text-sm text-gray-400">Incorrect</p>
                     </div>
-                    <div class="bg-black/20 rounded-xl p-4">
-                        <p class="text-3xl font-bold text-purple-400" id="final-accuracy">0%</p>
-                        <p class="text-sm text-gray-400">Accuracy</p>
+                        <div class="bg-black/20 rounded-xl p-4">
+                            <p class="text-4xl font-bold text-blue-400" id="final-streak">0</p>
+                        <p class="text-sm text-gray-400 mb-2">Best Streak</p>
                     </div>
                 </div>
-                
-                <div class="bg-black/20 rounded-xl p-4 mb-8">
-                    <p class="text-sm text-gray-400 mb-2">Best Streak</p>
-                    <p class="text-4xl font-bold text-orange-400" id="final-streak">0</p>
+                <div class="grid grid-cols-2 gap-4 mb-8">
+                    <div class="bg-black/20 rounded-xl p-4">
+                        <p class="text-sm text-gray-400">Accuracy</p>
+                        <p class="text-3xl font-bold text-purple-400" id="final-accuracy">0%</p>
+                    </div>
+                    <div class="bg-black/20 rounded-xl p-4">
+                        <p class="text-sm text-gray-400">Mastery</p>
+                        <p class="text-3xl font-bold text-orange-400" id="final-mastery">0%</p>
+                    </div>
                 </div>
                 
                 <!-- Terms to review -->
@@ -270,10 +275,22 @@
             </div>
         </div>
     </div>
-
     <script>
+        // Enhanced termStats structure - initialize like this for each card
+        function initializeTermStats(cardId) {
+            return {
+                correct: 0,
+                incorrect: 0,
+                streak: 0,
+                seen: 0,
+                attempts: [],           // {correct: bool, timeMs: number, timestamp: number}
+                easeFactor: 2.5,        // SM-2 style: 1.3 (hard) to 3.0 (easy)
+                lastSeen: null,         // Timestamp
+                lastShownIndex: null    // Position in session when last shown (for spacing)
+            };
+        }
         // State Management
-        const state = {
+        state = {
             rawData: '',
             fileName: '',
             cards: [],
@@ -297,7 +314,29 @@
                 termStats: {} // For learning algorithm
             }
         };
-
+        // Setup learning constraints
+        const LEARNING_CONFIG = {
+            // Mastery thresholds
+            masteryThreshold: 0.85,         // 85% = mastered
+            minAttempts: 3,                 // Must attempt at least 3 times
+            minAccuracy: 0.80,              // 80% accuracy required
+            minRecentStreak: 2,             // Last 2 must be correct
+            maxResponseTimeMs: 10000,       // 10 seconds max for "fluent" answer
+            minSpacedCorrect: 2,            // Need 2 correct answers with gaps
+            
+            // Spacing
+            minSpacing: 3,                  // Don't repeat within 3 cards
+            
+            // Priority weights
+            weights: {
+                antiMastery: 35,            // (1 - mastery) contribution
+                struggling: 25,             // Low accuracy boost
+                unseen: 30,                 // Never seen bonus
+                spacing: 10,                // Time since seen bonus
+                recentError: 20,            // Just got it wrong bonus
+                difficulty: 10              // Low ease factor bonus
+            }
+        };
         // DOM Elements
         const pages = {
             landing: document.getElementById('landing-page'),
@@ -420,7 +459,6 @@
                 document.getElementById('row-count').textContent = `${rows.length} rows detected`;
             }
         }
-
         // Process cards from parsed data
         function processCards() {
             const delimiter = state.settings.delimiter === '\\t' ? '\t' : state.settings.delimiter;
@@ -454,48 +492,233 @@
             }
         }
 
-        // Learning algorithm - weighted random selection
-        function getNextCard() {
-            const { queue, termStats } = state.quiz;
+        // Calculate card weights
+        function calculateMastery(stats) {
+            if (!stats || stats.seen === 0) {
+                return 0;
+            }
             
-            if (queue.length === 0) {
-            // Rebuild queue with weighted probabilities, include all cards
-            const weights = state.cards.map(card => {
-                const stats = termStats[card.id] || { correct: 0, incorrect: 0, seen: 0 };
-                const seen = stats.seen || 0;
-                const unseenBoost = seen === 0 ? 4 : 0; // tweak the 4 to taste
-                // Higher weight for cards answered incorrectly, also boost unseen cards
-                const weight = 1 + unseenBoost + (stats.incorrect * 3) - (stats.correct * 1.0);
-                return Math.max(0.1, weight);
-            });
-        
-            const totalWeight = weights.reduce((a, b) => a + b, 0);
-            // Make sure we try to add every card at least once
-            const numToAdd = state.cards.length;
-        
-            while (queue.length < numToAdd) {
-                let random = Math.random() * totalWeight;
-                for (let i = 0; i < state.cards.length; i++) {
-                    random -= weights[i];
-                    if (random <= 0 && !queue.includes(i)) {
-                        queue.push(i);
+            const config = LEARNING_CONFIG;
+            
+            // Factor 1: Sufficient exposure (15%)
+            const exposureScore = Math.min(stats.seen / config.minAttempts, 1.0);
+            
+            // Factor 2: Overall accuracy (25%)
+            const accuracy = stats.seen > 0 ? stats.correct / stats.seen : 0;
+            const accuracyScore = Math.min(accuracy / config.minAccuracy, 1.0);
+            
+            // Factor 3: Recent streak (30%)
+            const recentScore = Math.min(stats.streak / config.minRecentStreak, 1.0);
+            
+            // Factor 4: Response speed (15%)
+            let speedScore = 0.5;
+            if (stats.attempts && stats.attempts.length > 0) {
+                const correctAttempts = stats.attempts.filter(a => a.correct);
+                if (correctAttempts.length > 0) {
+                    const avgTime = correctAttempts.reduce((sum, a) => sum + a.timeMs, 0) / correctAttempts.length;
+                    if (avgTime <= config.maxResponseTimeMs) {
+                        speedScore = 1.0 - (avgTime / config.maxResponseTimeMs) * 0.5;
+                    } else {
+                        speedScore = 0.5 * (config.maxResponseTimeMs / avgTime);
+                    }
+                }
+            }
+            speedScore = Math.min(Math.max(speedScore, 0), 1.0);
+            
+            // Factor 5: Spaced correct answers (15%)
+            const spacedCorrect = countSpacedCorrect(stats.attempts || []);
+            const spacingScore = Math.min(spacedCorrect / config.minSpacedCorrect, 1.0);
+            
+            // Weighted sum
+            const mastery = (
+                exposureScore * 0.15 +
+                accuracyScore * 0.25 +
+                recentScore * 0.30 +
+                speedScore * 0.15 +
+                spacingScore * 0.15
+            );
+            
+            return mastery;
+        }
+        function calculatePriority(stats, cardIndex, sessionIndex) {
+            const config = LEARNING_CONFIG;
+            const w = config.weights;
+            
+            // Handle unseen cards
+            if (!stats || stats.seen === 0) {
+                return w.unseen + Math.random() * 5;
+            }
+            
+            const mastery = calculateMastery(stats);
+            let priority = 0;
+            
+            // 1. Anti-mastery: Less mastered = higher priority
+            priority += (1.0 - mastery) * w.antiMastery;
+            
+            // 2. Struggling: Low accuracy = much higher priority (quadratic)
+            const accuracy = stats.correct / stats.seen;
+            const struggleFactor = Math.pow(1.0 - accuracy, 2);
+            priority += struggleFactor * w.struggling;
+            
+            // 3. Spacing: Longer since seen = higher priority
+            if (stats.lastShownIndex !== null) {
+                const gap = sessionIndex - stats.lastShownIndex;
+                priority += Math.min(gap * 1.5, w.spacing);
+            }
+            
+            // 4. Recent error: Just got it wrong = immediate priority
+            if (stats.attempts && stats.attempts.length > 0) {
+                const lastAttempt = stats.attempts[stats.attempts.length - 1];
+                if (!lastAttempt.correct) {
+                    priority += w.recentError;
+                }
+            }
+            
+            // 5. Difficulty: Harder items (low ease factor) need more practice
+            const difficultyBonus = (3.0 - stats.easeFactor) / 1.7; // Normalize 1.3-3.0 to 0-1
+            priority += difficultyBonus * w.difficulty;
+            
+            // Add small random factor to prevent determinism
+            priority += Math.random() * 3;
+            
+            return Math.max(0.1, priority);
+        }
+        function countSpacedCorrect(attempts, minGap = 2) {
+            if (!attempts || attempts.length === 0) return 0;
+            
+            const correctIndices = attempts
+                .map((a, i) => a.correct ? i : -1)
+                .filter(i => i !== -1);
+            
+            if (correctIndices.length < 2) return correctIndices.length;
+            
+            let spaced = 1;
+            let lastIdx = correctIndices[0];
+            
+            for (let i = 1; i < correctIndices.length; i++) {
+                if (correctIndices[i] - lastIdx >= minGap) {
+                    spaced++;
+                    lastIdx = correctIndices[i];
+                }
+            }
+            
+            return spaced;
+        }
+        function weightedSelectMultiple(candidates, count) {
+            const selected = [];
+            const available = [...candidates];
+            
+            while (selected.length < count && available.length > 0) {
+                // Use softmax-style selection (favor higher priority but not deterministic)
+                const temperatures = available.map((c, i) => Math.exp(-i * 0.3));
+                const totalTemp = temperatures.reduce((a, b) => a + b, 0);
+                
+                let random = Math.random() * totalTemp;
+                let chosenIdx = 0;
+                
+                for (let i = 0; i < available.length; i++) {
+                    random -= temperatures[i];
+                    if (random <= 0) {
+                        chosenIdx = i;
                         break;
                     }
                 }
-                // Fallback in case numerical issues prevent adding more
-                if (queue.length < numToAdd) {
-                    for (let i = 0; i < state.cards.length && queue.length < numToAdd; i++) {
-                        if (!queue.includes(i)) queue.push(i);
+                
+                selected.push(available[chosenIdx].index);
+                available.splice(chosenIdx, 1);
+            }
+            
+            return selected;
+        }
+
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+        }
+        // Learning algorithm - weighted random selection
+        function getNextCard() {
+            const { queue, termStats } = state.quiz;
+            const config = LEARNING_CONFIG;
+            
+            // Track session progress for spacing
+            const sessionIndex = state.quiz.answered || 0;
+            
+            if (queue.length === 0) {
+                const candidates = [];
+                
+                // Evaluate each card
+                for (let i = 0; i < state.cards.length; i++) {
+                    const card = state.cards[i];
+                    const stats = termStats[card.id] || initializeTermStats(card.id);
+                    
+                    // Check if mastered
+                    const mastery = calculateMastery(stats);
+                    if (mastery >= config.masteryThreshold) {
+                        continue; // Skip mastered cards
+                    }
+                    
+                    // Check spacing (don't show if seen too recently)
+                    if (stats.lastShownIndex !== null) {
+                        const gap = sessionIndex - stats.lastShownIndex;
+                        if (gap < config.minSpacing) {
+                            continue; // Too recent, skip for now
+                        }
+                    }
+                    
+                    // Calculate priority
+                    const priority = calculatePriority(stats, i, sessionIndex);
+                    candidates.push({ index: i, priority, mastery });
+                }
+                
+                // If all cards are mastered or need spacing, relax constraints
+                if (candidates.length === 0) {
+                    // First try: Allow recently seen cards
+                    for (let i = 0; i < state.cards.length; i++) {
+                        const card = state.cards[i];
+                        const stats = termStats[card.id] || initializeTermStats(card.id);
+                        const mastery = calculateMastery(stats);
+                        
+                        if (mastery < config.masteryThreshold) {
+                            const priority = calculatePriority(stats, i, sessionIndex);
+                            candidates.push({ index: i, priority, mastery });
+                        }
                     }
                 }
+                
+                // If still empty, all cards are mastered!
+                if (candidates.length === 0) {
+                    return null; // Signal completion
+                }
+                
+                // Sort by priority (highest first)
+                candidates.sort((a, b) => b.priority - a.priority);
+                
+                // Select cards using weighted random from top candidates
+                const numToAdd = Math.min(candidates.length, 10);
+                const selected = weightedSelectMultiple(candidates, numToAdd);
+                
+                // Add to queue
+                selected.forEach(idx => queue.push(idx));
+                
+                // Shuffle the queue for variety
+                shuffleArray(queue);
             }
-        
-            // Shuffle queue so order isn't deterministic
-            for (let i = queue.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [queue[i], queue[j]] = [queue[j], queue[i]];
+            
+            const cardIndex = queue.shift();
+            const card = state.cards[cardIndex];
+            
+            // Update lastShownIndex for spacing
+            if (!termStats[card.id]) {
+                termStats[card.id] = initializeTermStats(card.id);
             }
-            return state.cards[queue.shift()];
+            termStats[card.id].lastShownIndex = sessionIndex;
+            
+            // Store for response tracking
+            state.quiz.currentCardStartTime = Date.now();
+            
+            return card;
         }
 
         // Generate wrong answers
@@ -531,7 +754,8 @@
                 showResults();
                 return;
             }
-            
+
+            state.quiz.currentCardStartTime = Date.now();
             state.quiz.currentCard = card;
             
             // Determine direction based on quiz mode
@@ -576,17 +800,59 @@
                 container.appendChild(btn);
             });
             
-            // Update progress
-            const progress = (state.quiz.answered / (state.cards.length * 2)) * 100;
-            document.getElementById('progress-bar').style.width = `${Math.min(progress, 100)}%`;
-            
             // Animate card
             const questionCard = document.getElementById('question-card');
             questionCard.classList.remove('animate-slide-in');
             void questionCard.offsetWidth; // Trigger reflow
             questionCard.classList.add('animate-slide-in');
         }
-
+        // Gather card statistics
+        function recordResponse(cardId, isCorrect) {
+            const stats = state.quiz.termStats[cardId] || initializeTermStats(cardId);
+            state.quiz.termStats[cardId] = stats;
+            
+            // Calculate response time
+            const responseTimeMs = Date.now() - (state.quiz.currentCardStartTime || Date.now());
+            
+            // Record attempt
+            stats.attempts.push({
+                correct: isCorrect,
+                timeMs: responseTimeMs,
+                timestamp: Date.now()
+            });
+            
+            // Update basic counters
+            stats.seen++;
+            if (isCorrect) {
+                stats.correct++;
+                stats.streak++;
+                
+                // Update ease factor (gets easier)
+                const timeBonus = Math.max(0, (LEARNING_CONFIG.maxResponseTimeMs - responseTimeMs) / LEARNING_CONFIG.maxResponseTimeMs) * 0.1;
+                stats.easeFactor = Math.min(3.0, stats.easeFactor + 0.1 + timeBonus);
+            } else {
+                stats.incorrect++;
+                stats.streak = 0; // Reset streak
+                
+                // Update ease factor (gets harder)
+                stats.easeFactor = Math.max(1.3, stats.easeFactor - 0.25);
+            }
+            
+            stats.lastSeen = Date.now();
+            
+            // Update global quiz stats
+            state.quiz.answered++;
+            if (isCorrect) {
+                state.quiz.correct++;
+                state.quiz.streak++;
+                state.quiz.bestStreak = Math.max(state.quiz.bestStreak, state.quiz.streak);
+            } else {
+                state.quiz.incorrect++;
+                state.quiz.streak = 0;
+            }
+            
+            return stats;
+        }
         // Handle answer selection
         function handleAnswer(selectedIndex) {
             const isCorrect = selectedIndex === state.quiz.correctIndex;
@@ -597,30 +863,16 @@
             buttons.forEach(btn => btn.disabled = true);
             
             // Initialize term stats if needed
-            if (!state.quiz.termStats[card.id]) {
-                state.quiz.termStats[card.id] = { correct: 0, incorrect: 0 };
-            }
-            state.quiz.termStats[card.id].seen = (state.quiz.termStats[card.id].seen || 0) + 1;
+            recordResponse(card.id, isCorrect)
             
             // Visual feedback
             buttons[state.quiz.correctIndex].classList.add('correct-flash', 'text-white');
             
             if (isCorrect) {
-                state.quiz.correct++;
-                state.quiz.streak++;
-                state.quiz.bestStreak = Math.max(state.quiz.bestStreak, state.quiz.streak);
-                state.quiz.termStats[card.id].correct++;
                 buttons[selectedIndex].classList.add('animate-pulse-once');
             } else {
-                state.quiz.incorrect++;
-                state.quiz.streak = 0;
-                state.quiz.termStats[card.id].incorrect++;
                 buttons[selectedIndex].classList.add('incorrect-flash', 'text-white', 'animate-shake');
-                
-                // Re-add card to queue for review
-                state.quiz.queue.push(state.cards.indexOf(card));
             }
-            
             state.quiz.answered++;
             
             // Update counters
@@ -629,14 +881,17 @@
             document.getElementById('streak-count').textContent = state.quiz.streak;
             
             // Check if session is complete (all cards mastered)
-            const allMastered = state.cards.every(c => {
-                const stats = state.quiz.termStats[c.id];
-                return stats && stats.correct >= 2 && stats.correct > stats.incorrect;
-            });
+            const weights = state.cards.map(card => calculateMastery(state.quiz.termStats[card.id]));
+            const allMastered = weights.every(m => m >= LEARNING_CONFIG.masteryThreshold);
+            
+            // Update progress bar
+            const totalMastered = weights.reduce((total, cur) => total + cur, 0);
+            const progress = Math.round((totalMastered / (LEARNING_CONFIG.masteryThreshold * state.cards.length)) * 100);
+            document.getElementById('progress-bar').style.width = `${Math.min(progress, 100)}%`;
             
             // Auto-advance after delay
             setTimeout(() => {
-                if (allMastered || state.quiz.answered >= state.cards.length * 3) {
+                if (allMastered || state.quiz.answered >= state.cards.length * 5) {
                     showResults();
                 } else {
                     displayQuestion();
@@ -648,18 +903,25 @@
         function showResults() {
             showPage('results');
             
+            // Calculate Accuracy
             const total = state.quiz.correct + state.quiz.incorrect;
             const accuracy = total > 0 ? Math.round((state.quiz.correct / total) * 100) : 0;
             
+            // Calculate Mastery
+            const weights = state.cards.map(card => calculateMastery(state.quiz.termStats[card.id]));
+            const totalMastered = weights.reduce((total, cur) => total + cur, 0);
+            const progress = Math.round((totalMastered / (LEARNING_CONFIG.masteryThreshold * state.cards.length)) * 100);
+            
             document.getElementById('final-correct').textContent = state.quiz.correct;
             document.getElementById('final-incorrect').textContent = state.quiz.incorrect;
-            document.getElementById('final-accuracy').textContent = accuracy + '%';
             document.getElementById('final-streak').textContent = state.quiz.bestStreak;
+            document.getElementById('final-accuracy').textContent = accuracy + '%';
+            document.getElementById('final-mastery').textContent = progress + '%';
             
             // Show terms to review
             const toReview = state.cards.filter(card => {
-                const stats = state.quiz.termStats[card.id];
-                return stats && stats.incorrect > stats.correct;
+                const weight = weights[card.id];
+                return weight < LEARNING_CONFIG.masteryThreshold * 0.8 && weight > 0;
             });
             
             const reviewSection = document.getElementById('review-section');
@@ -773,7 +1035,7 @@
 
         // Drag and drop support
         const dropZone = document.querySelector('#landing-page label');
-        
+
         dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
             dropZone.querySelector('div').classList.add('border-purple-400', 'bg-purple-500/20');
